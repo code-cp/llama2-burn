@@ -14,7 +14,6 @@ use ndarray::prelude::*;
 use std::fs::{read, File};
 use std::io::{self, BufReader, ErrorKind, Read, Write};
 use std::path::{Path, PathBuf};
-use std::time::Instant;
 
 use crate::config::{DefaultDevice, StateConfig};
 use crate::utils::*;
@@ -514,31 +513,12 @@ impl Model {
         }
     }
 
-    pub fn get_next_token(&self, temperature: f32) -> i32 {
+    pub fn get_next_token(&self, temperature: f32) -> usize {
         let logits = if temperature < 1e-2 {
             self.run_state.logits.clone()
         } else {
             self.run_state.logits.clone() / temperature
         };
-        logits.clone().argmax(0).into_scalar().elem::<i32>()
-    }
-
-    pub fn inference(&self, prompt: Vec<usize>, max_steps: i32) {
-        let now = Instant::now();
-        let mut steps = 0;
-        for (position, token) in prompt.iter().enumerate() {
-            self.forward(token, position % self.context_len);
-        }
-        for i in 0..max_steps {
-            let next_token = self.get_next_token(temperature);
-            self.forward(
-                &[next_token as usize],
-                (prompt.len() + i) % self.context_len,
-            );
-            steps += 1;
-            if next_token == 0 {
-                break;
-            }
-        }
+        logits.clone().argmax(0).into_scalar().elem::<i32>() as usize
     }
 }
