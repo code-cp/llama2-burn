@@ -4,7 +4,7 @@ use std::fs::File;
 use std::io::{self, BufReader, ErrorKind, Read, Write};
 use std::path::{Path, PathBuf};
 
-use crate::utils::*; 
+use crate::utils::*;
 
 pub enum SpecialToken {
     Unk = 0,
@@ -12,7 +12,7 @@ pub enum SpecialToken {
     Eos = 2,
 }
 
-struct Tokenizer {
+pub struct Tokenizer {
     pub vocab_size: i32,
     pub max_token_length: i32,
     pub token_to_id: HashMap<String, usize>,
@@ -24,7 +24,7 @@ struct Tokenizer {
 
 impl Tokenizer {
     /// build_tokenizer in llama2.c
-    fn new<P: AsRef<Path>>(path: P, vocab_size: i32) -> Result<Self> {
+    pub fn new<P: AsRef<Path>>(path: P, vocab_size: i32) -> Result<Self> {
         let f = File::open(path.as_ref()).expect("tokenizer file should exist");
         let mut input = BufReader::new(f);
 

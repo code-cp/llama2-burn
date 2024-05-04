@@ -20,3 +20,4 @@ pub fn read_string<R: Read>(r: &mut R) -> Result<String> {
     let string = unsafe { String::from_utf8_unchecked(s_buffer.to_vec()) };
     Ok(string)
 }
+

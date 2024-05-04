@@ -14,6 +14,7 @@ use ndarray::prelude::*;
 use std::fs::{read, File};
 use std::io::{self, BufReader, ErrorKind, Read, Write};
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 use crate::config::{DefaultDevice, StateConfig};
 use crate::utils::*;
@@ -22,8 +23,8 @@ use crate::{config::DefalutBackend as B, state::RunState};
 #[derive(Debug, Config, Shrinkwrap)]
 pub struct ModelConfig {
     #[shrinkwrap(main_field)]
-    state_config: StateConfig,
-    model_dir: Option<PathBuf>,
+    pub state_config: StateConfig,
+    pub model_dir: Option<PathBuf>,
 }
 
 impl ModelConfig {
@@ -92,18 +93,6 @@ impl ModelConfig {
 
         let rms_final_weight = Tensor::ones(Shape::new([self.dim as usize]), device);
 
-        let rope_dim = self.dim / (self.n_heads * 2);
-
-        let freq_cis_real = Tensor::zeros(
-            Shape::new([self.seq_len as usize, rope_dim as usize]),
-            device,
-        );
-
-        let freq_cis_imag = Tensor::zeros(
-            Shape::new([self.seq_len as usize, rope_dim as usize]),
-            device,
-        );
-
         let weights = ModelWeights {
             token_embedding,
             rms_att_weight,
@@ -116,8 +105,6 @@ impl ModelConfig {
             w2,
             w3,
             rms_final_weight,
-            freq_cis_real,
-            freq_cis_imag,
         };
 
         let run_state = self.init::<B>(device);
@@ -216,18 +203,6 @@ impl ModelConfig {
             NdArrayTensor::<f32, 1>::new(rms_final_weight_arr.into_dyn().into());
         let rms_final_weight = Tensor::from_primitive(rms_final_weight_arr);
 
-        let rope_dim = self.dim / (self.n_heads * 2);
-
-        let freq_cis_real_arr =
-            read_weights((self.seq_len as usize, rope_dim as usize, 1)).slice_move(s2);
-        let freq_cis_real_arr = NdArrayTensor::<f32, 2>::new(freq_cis_real_arr.into_dyn().into());
-        let freq_cis_real = Tensor::from_primitive(freq_cis_real_arr);
-
-        let freq_cis_imag_arr =
-            read_weights((self.seq_len as usize, rope_dim as usize, 1)).slice_move(s2);
-        let freq_cis_imag_arr = NdArrayTensor::<f32, 2>::new(freq_cis_imag_arr.into_dyn().into());
-        let freq_cis_imag = Tensor::from_primitive(freq_cis_imag_arr);
-
         let weights = ModelWeights {
             token_embedding,
             rms_att_weight,
@@ -240,8 +215,6 @@ impl ModelConfig {
             w2,
             w3,
             rms_final_weight,
-            freq_cis_real,
-            freq_cis_imag,
         };
 
         let run_state = self.init::<B>(device);
@@ -287,10 +260,6 @@ pub struct ModelWeights {
     /// rms norm
     /// (dim,)
     pub rms_final_weight: Tensor<B, 1>,
-    /// RoPE relatively positional embeddings
-    /// (seq_len, dim/(num_heads*2))
-    pub freq_cis_real: Tensor<B, 2>,
-    pub freq_cis_imag: Tensor<B, 2>,
 }
 
 #[derive(Debug, Clone, Module, Shrinkwrap)]
@@ -316,26 +285,13 @@ impl Model {
             .token_embedding
             .clone()
             .select(0, token_embedding_index)
-            .unsqueeze();
+            .squeeze(1);
 
-        let position_embedding_index = Tensor::<B, 1, Int>::from_data(
-            Data::new(vec![position], Shape::new([1])).convert(),
-            &device,
-        );
-        let freq_cis_real_row: Tensor<B, 1> = self
-            .freq_cis_real
-            .clone()
-            .select(0, position_embedding_index.clone())
-            .unsqueeze();
-        let freq_cis_imag_row: Tensor<B, 1> = self
-            .freq_cis_imag
-            .clone()
-            .select(0, position_embedding_index)
-            .unsqueeze();
+        let model_dim = self.run_state.x.dims()[0];
 
-        for l in 0..self.n_layers {
+        for layer_id in 0..self.n_layers {
             let layer_index = Tensor::<B, 1, Int>::from_data(
-                Data::new(vec![l], Shape::new([1])).convert(),
+                Data::new(vec![layer_id], Shape::new([1])).convert(),
                 &device,
             );
             let att_weight: Tensor<B, 1> = self
@@ -343,7 +299,7 @@ impl Model {
                 .clone()
                 .select(0, layer_index.clone())
                 .unsqueeze();
-            self.run_state.xb = self.rms_norm.forward(self.run_state.x.clone());
+            self.run_state.xb = self.rms_norm.forward(self.run_state.x.clone()) * att_weight;
 
             // attention matmul
             self.run_state.q = self.run_state.xb.clone()
@@ -352,25 +308,192 @@ impl Model {
                 * self.wk.clone().select(0, layer_index.clone()).unsqueeze();
             self.run_state.v = self.run_state.xb.clone()
                 * self.wv.clone().select(0, layer_index.clone()).unsqueeze();
+
+            Model::rope(
+                &mut self.run_state.q,
+                self.n_heads as usize,
+                self.head_size as usize,
+                position as usize,
+                &device,
+            );
+
+            Model::rope(
+                &mut self.run_state.k,
+                self.n_heads as usize,
+                self.head_size as usize,
+                position as usize,
+                &device,
+            );
+
+            // save key and value to cache
+            self.run_state.key_cache = self.run_state.key_cache.clone().slice_assign(
+                [
+                    layer_id as usize..(layer_id + 1) as usize,
+                    position as usize..(position + 1) as usize,
+                    0..model_dim,
+                ],
+                self.run_state.k.clone().unsqueeze_dims(&[-1, -1]),
+            );
+
+            self.run_state.value_cache = self.run_state.key_cache.clone().slice_assign(
+                [
+                    layer_id as usize..(layer_id + 1) as usize,
+                    position as usize..(position + 1) as usize,
+                    0..model_dim,
+                ],
+                self.run_state.v.clone().unsqueeze_dims(&[-1, -1]),
+            );
+
+            // multi-head attention
+            self.attention(layer_id as usize, position as usize);
+
+            // final attention matmul
+            self.run_state.xb2 = self
+                .wo
+                .clone()
+                .slice([
+                    layer_id as usize..(layer_id + 1) as usize,
+                    0..model_dim as usize,
+                    0..model_dim as usize,
+                ])
+                .squeeze::<2>(1)
+                .squeeze(1)
+                * self.run_state.xb.clone();
+
+            // residual connection
+            self.run_state.x = self.run_state.x.clone() + self.run_state.xb2.clone();
+
+            // ffn rmsnorm
+            let rms_ffn_weight: Tensor<B, 1> = self
+                .rms_ffn_weight
+                .clone()
+                .select(0, layer_index.clone())
+                .unsqueeze();
+            self.run_state.xb = self.rms_norm.forward(self.run_state.x.clone()) * rms_ffn_weight;
+
+            self.feedforward(layer_id as usize);
+        }
+
+        // final rms norm
+        self.run_state.x =
+            self.rms_norm.forward(self.run_state.x.clone()) * self.rms_final_weight.clone();
+
+        // logits
+        self.run_state.logits = self
+            .token_embedding
+            .clone()
+            .matmul(self.run_state.x.clone().unsqueeze_dim(1))
+            .squeeze(1);
+    }
+
+    /// self.w2(F.silu(self.w1(x)) * self.w3(x))
+    pub fn feedforward(&mut self, layer_id: usize) {
+        let hidden_dim = self.w1.dims()[1];
+        let model_dim = self.w1.dims()[2];
+
+        self.run_state.hb = self
+            .w1
+            .clone()
+            .slice([layer_id..layer_id + 1, 0..hidden_dim, 0..model_dim])
+            .squeeze::<2>(1)
+            .squeeze(1)
+            * self.run_state.xb.clone();
+
+        self.run_state.hb = activation::silu(self.run_state.hb.clone());
+
+        self.run_state.hb2 = self
+            .w3
+            .clone()
+            .slice([layer_id..layer_id + 1, 0..hidden_dim, 0..model_dim])
+            .squeeze::<2>(1)
+            .squeeze(1)
+            * self.run_state.xb.clone();
+
+        self.run_state.hb = self.run_state.hb.clone() * self.run_state.hb2.clone();
+
+        self.run_state.xb = self
+            .w2
+            .clone()
+            .slice([layer_id..layer_id + 1, 0..hidden_dim, 0..model_dim])
+            .squeeze::<2>(1)
+            .squeeze(1)
+            * self.run_state.hb.clone();
+
+        // residual connection
+        self.run_state.x = self.run_state.x.clone() + self.run_state.xb.clone();
+    }
+
+    pub fn attention(&mut self, layer_id: usize, position: usize) {
+        for head_index in 0..self.n_heads {
+            let q_head = self
+                .run_state
+                .q
+                .clone()
+                .slice([(head_index * self.head_size) as usize
+                    ..((head_index + 1) * self.head_size) as usize]);
+
+            let prev_key: Tensor<B, 1> = self
+                .run_state
+                .key_cache
+                .clone()
+                .slice([
+                    layer_id..layer_id + 1,
+                    0..position + 1,
+                    (head_index * self.head_size) as usize
+                        ..((head_index + 1) * self.head_size) as usize,
+                ])
+                .squeeze::<2>(1)
+                .squeeze(1);
+
+            // softmax(Q K^T / sqrt(d))
+            let attn_logits = prev_key * q_head / (self.head_size as f32).sqrt();
+            let scores = activation::softmax(attn_logits, 0);
+            self.run_state.att = self
+                .run_state
+                .att
+                .clone()
+                .slice_assign([0..position + 1], scores.clone());
+
+            let prev_value = self
+                .run_state
+                .value_cache
+                .clone()
+                .slice([
+                    layer_id..layer_id + 1,
+                    0..position + 1,
+                    (head_index * self.head_size) as usize
+                        ..((head_index + 1) * self.head_size) as usize,
+                ])
+                .squeeze::<2>(1)
+                .transpose();
+            let weighted = prev_value.matmul(scores.unsqueeze_dim(1));
+            self.run_state.xb = self.run_state.xb.clone().slice_assign(
+                [(head_index * self.head_size) as usize
+                    ..((head_index + 1) * self.head_size) as usize],
+                weighted.unsqueeze(),
+            )
         }
     }
 
     /// apply RoPE rotation to the q and k vectors for each head
     /// x is either query or key
     pub fn rope(
-        x: Tensor<B, 1>,
-        freq_cis_real_row: Tensor<B, 1>,
-        freq_cis_imag_row: Tensor<B, 1>,
+        x: &mut Tensor<B, 1>,
         n_heads: usize,
         head_size: usize,
         position: usize,
-        device: DefaultDevice,
+        device: &DefaultDevice,
     ) {
         for head_index in 0..n_heads {
             let q = x.clone().slice([
                 (head_index * head_size) as usize..((head_index + 1) * head_size) as usize
             ]);
             for i in (0..q.dims()[0]).step_by(2) {
+                let freq = 1. / 10000f32.powf(2. * (i as f32) / (head_size as f32));
+                let val = position as f32 * freq;
+                let fcr = val.cos();
+                let fci = val.sin();
+
                 let index = Tensor::<B, 1, Int>::from_data(
                     Data::new(vec![i as i32], Shape::new([1])).convert(),
                     &device,
@@ -378,12 +501,43 @@ impl Model {
                 let prev_val = q.clone().select(0, index.clone());
                 let next_val = q.clone().select(0, index.clone() + 1);
 
-                let updated_prev_val = prev_val.clone()
-                    * freq_cis_real_row.clone().select(0, index.clone())
-                    - next_val.clone() * freq_cis_imag_row.clone().select(0, index.clone());
-                let updated_next_val: Tensor<NdArray, 1> = prev_val
-                    * freq_cis_imag_row.clone().select(0, index.clone())
-                    + next_val * freq_cis_real_row.clone().select(0, index.clone());
+                let updated_prev_val = prev_val.clone() * fcr - next_val.clone() * fci;
+                let updated_next_val: Tensor<NdArray, 1> = prev_val * fcr + next_val * fci;
+
+                let indices = Tensor::<B, 1, Int>::from_data(
+                    Data::new(vec![i as i32, (i + 1) as i32], Shape::new([1])).convert(),
+                    &device,
+                );
+                let values = Tensor::cat(vec![updated_prev_val, updated_next_val], 0);
+                *x = x.clone().select_assign(0, indices, values);
+            }
+        }
+    }
+
+    pub fn get_next_token(&self, temperature: f32) -> i32 {
+        let logits = if temperature < 1e-2 {
+            self.run_state.logits.clone()
+        } else {
+            self.run_state.logits.clone() / temperature
+        };
+        logits.clone().argmax(0).into_scalar().elem::<i32>()
+    }
+
+    pub fn inference(&self, prompt: Vec<usize>, max_steps: i32) {
+        let now = Instant::now();
+        let mut steps = 0;
+        for (position, token) in prompt.iter().enumerate() {
+            self.forward(token, position % self.context_len);
+        }
+        for i in 0..max_steps {
+            let next_token = self.get_next_token(temperature);
+            self.forward(
+                &[next_token as usize],
+                (prompt.len() + i) % self.context_len,
+            );
+            steps += 1;
+            if next_token == 0 {
+                break;
             }
         }
     }
