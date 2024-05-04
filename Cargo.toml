@@ -1,0 +1,17 @@
+[package]
+name = "llama2-rs"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+ndarray = "0.15.6"
+rand = "0.8.5"
+anyhow = "1.0.75"
+shrinkwraprs = "0.3.0"
+
+burn = { version = "0.13.1", features=["ndarray", "autodiff"] }
+burn-tensor = "0.13.1"
+burn-ndarray = "0.13.1"
+burn-autodiff = "0.13.1"
