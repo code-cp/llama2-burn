@@ -5,6 +5,7 @@ use std::time::Instant;
 
 use llama2_rs::config::*;
 use llama2_rs::llama2::*;
+use llama2_rs::sampling::*;
 use llama2_rs::tokenizer::*;
 
 fn main() {
@@ -31,7 +32,6 @@ fn main() {
     let tokenizer =
         Tokenizer::new(&token_path, llama2_config.vocab_size).expect("Should load tokenizer");
     let mut string_seq = "One day, Lily met a Shoggoth".to_string();
-    let input_len = string_seq.len();
     // Initialize with token 1 (=BOS), as done in Llama-2 sentencepiece tokenizer
     let prompt = tokenizer.encode(string_seq.as_str(), true, false);
     // println!("Prompt: {:?}", prompt);
@@ -46,15 +46,21 @@ fn main() {
         prev_token = *token;
     }
     for i in 0..llama2_config.seq_len - prompt.len() as i32 {
-        let next_token = llama2_model.get_next_token(temperature);
+        let next_token = get_next_token(&llama2_model.run_state.logits, temperature);
         string_seq.push_str(tokenizer.decode(prev_token, next_token).as_str());
+
+        // check if we reach end of token
+        if next_token == 2 {
+            break;
+        }
+
         prev_token = next_token;
         llama2_model.forward(next_token as usize, prompt.len() as i32 + i);
     }
 
     println!(
         "\nRan at {} tok/s.",
-        ((string_seq.len() - input_len) as f32) / now.elapsed().as_secs_f32()
+        (string_seq.len() as f32) / now.elapsed().as_secs_f32()
     );
     println!("result: {string_seq}");
 }

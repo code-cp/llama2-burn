@@ -553,13 +553,4 @@ impl Model {
             }
         }
     }
-
-    pub fn get_next_token(&self, temperature: f32) -> usize {
-        let logits = if temperature < 1e-2 {
-            self.run_state.logits.clone()
-        } else {
-            self.run_state.logits.clone() / temperature
-        };
-        logits.clone().argmax(0).into_scalar().elem::<i32>() as usize
-    }
 }
