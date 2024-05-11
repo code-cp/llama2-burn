@@ -1608,6 +1608,7 @@ dependencies = [
  "burn-tensor",
  "ndarray",
  "rand",
+ "serde_json",
  "shrinkwraprs",
 ]
 

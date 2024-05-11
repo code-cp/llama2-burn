@@ -52,6 +52,13 @@ impl Tokenizer {
             .map(|(i, v)| (i.clone(), v.clone()))
             .collect();
 
+        let json_str =
+            serde_json::to_string(&id_to_token).expect("Should serialize HashMap to JSON");
+        let mut file =
+            File::create("./data/id_to_token.json").expect("Should be able to create file");
+        file.write_all(json_str.as_bytes())
+            .expect("Should write to file");
+
         let byte_pieces: Vec<char> = (0..=256).map(|i| i as u8 as char).collect();
 
         Ok(Self {

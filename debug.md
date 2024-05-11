@@ -24,7 +24,7 @@ Found special token 'D' at index 29928
 
 ## issues with ROPE 
 
-- I switch the cos and sin in code below, then the output becomes very repetitive  
+- I switched the cos and sin in code below
 ```rust
                 let freq = 1. / 10000f32.powf(2. * (i as f32) / (head_size as f32));
                 let val = position as f32 * freq;

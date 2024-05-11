@@ -530,7 +530,7 @@ impl Model {
                 // sligtly different from loading from bin file
                 let freq = 1. / 10000f32.powf(2. * (i as f32) / (head_size as f32));
                 let val = position as f32 * freq;
-                let fcr = val.cos();
+                let fcr: f32 = val.cos();
                 let fci = val.sin();
 
                 // NOTE, this is relative index within each head
