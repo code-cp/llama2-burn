@@ -15,9 +15,9 @@ pub enum SpecialToken {
 pub struct Tokenizer {
     pub vocab_size: i32,
     pub max_token_length: i32,
-    pub token_to_id: HashMap<String, usize>,
+    pub token_to_id: Vec<String>,
     pub id_to_token: HashMap<usize, String>,
-    pub id_to_score: HashMap<usize, f32>,
+    pub id_to_score: Vec<f32>,
     // stores all single-byte strings
     pub byte_pieces: Vec<char>,
 }
@@ -29,12 +29,12 @@ impl Tokenizer {
         let mut input = BufReader::new(f);
 
         let max_token_length = read_i32(&mut input)?;
-        let mut token_to_id = HashMap::with_capacity(vocab_size as usize);
-        let mut id_to_score = HashMap::with_capacity(vocab_size as usize);
+        let mut token_to_id = Vec::with_capacity(vocab_size as usize);
+        let mut id_to_score = Vec::with_capacity(vocab_size as usize);
 
-        for i in 0..vocab_size {
+        for _ in 0..vocab_size {
             let score = read_f32(&mut input)?;
-            id_to_score.insert(i as usize, score);
+            id_to_score.push(score);
             let str_len = read_i32(&mut input)?;
 
             let mut word: String = String::new();
@@ -43,12 +43,13 @@ impl Tokenizer {
                 word.push_str(&string);
             }
 
-            token_to_id.insert(word, i as usize);
+            token_to_id.push(word);
         }
 
-        let id_to_token = token_to_id
+        let id_to_token: HashMap<usize, String> = token_to_id
             .iter()
-            .map(|(k, v)| (v.clone(), k.clone()))
+            .enumerate()
+            .map(|(i, v)| (i.clone(), v.clone()))
             .collect();
 
         let byte_pieces: Vec<char> = (0..=256).map(|i| i as u8 as char).collect();
@@ -71,25 +72,19 @@ impl Tokenizer {
             tokens.push(SpecialToken::Bos as usize);
         }
 
-        // add dummy prefix if input is empty
-        if !text.is_empty() {
-            let dummy_prefix = self.token_to_id.get(" ").expect("Token should be legit");
-            tokens.push(*dummy_prefix);
+        if text.is_empty() {
+            panic!("invalid prompt!");
         }
 
         for ch in text.chars() {
             let string = ch.to_string();
-            match self.token_to_id.get(&string) {
-                Some(token_id) => tokens.push(*token_id),
-                None => {
-                    // byte_fallback encoding: just encode each byte as a token
-                    // +3 is here because the first 3 vocab elements are <unk>, <s>, </s>
-                    // so the individual bytes only start at index 3
-                    for byte in string.as_bytes() {
-                        tokens.push(*byte as usize + 3);
-                    }
-                }
-            }
+            let (id, _) = self
+                .token_to_id
+                .iter()
+                .enumerate()
+                .find(|x| (*x).1 == &string)
+                .expect("illegal character");
+            tokens.push(id);
         }
 
         // merge the best consecutive pair each iteration, according the scores in vocab_scores
@@ -104,20 +99,22 @@ impl Tokenizer {
                 buffer.push_str(
                     &self
                         .id_to_token
-                        .get(&(i as usize))
+                        .get(&tokens[i])
                         .expect("token id should be legit"),
                 );
                 buffer.push_str(
                     &self
                         .id_to_token
-                        .get(&((i + 1) as usize))
+                        .get(&tokens[i + 1])
                         .expect("token id should be legit"),
                 );
-                if let Some(&matched_id) = self.token_to_id.get(&buffer) {
-                    let score = *self
-                        .id_to_score
-                        .get(&matched_id)
-                        .expect("Score should exist");
+                if let Some((matched_id, _)) = self
+                    .token_to_id
+                    .iter()
+                    .enumerate()
+                    .find(|x| (*x).1 == &buffer)
+                {
+                    let score = self.id_to_score[matched_id];
                     if best_score < score {
                         best_score = score;
                         best_token_id = Some(matched_id);

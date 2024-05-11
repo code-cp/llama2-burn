@@ -24,3 +24,18 @@ let tensor = Tensor::<NdArray, 2>::new(tensor);
 ```
 
 - for training can call Tensor::from_inner to wrap the NdArrayTensor inside autodiff
+
+## select_assign in burn 
+
+- select_assign is += 
+```
+/// Assign the selected elements along the given dimension corresponding to the given indices
+    /// from the value tensor to the original tensor using sum reduction.
+    ///
+    /// Example using a 3D tensor:
+    ///
+    /// `input[indices[i], j, k] += values[i, j, k]; // dim = 0`
+    /// `input[i, indices[j], k] += values[i, j, k]; // dim = 1`
+    /// `input[i, j, indices[k]] += values[i, j, k]; // dim = 2`
+```
+- slice_assign is = 

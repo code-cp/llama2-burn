@@ -8,3 +8,4 @@ Implement llama2.c using Burn
 - https://github.com/rahoua/pecca-rs/tree/main
 - https://github.com/hamishs/llama2.rs/tree/master
 - https://github.com/Ma-Jian1/llama2.c-rs/tree/main
+- https://github.com/tairov/llama2.py

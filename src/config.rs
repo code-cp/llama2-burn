@@ -20,12 +20,19 @@ pub type DefaultDevice = burn_ndarray::NdArrayDevice;
 
 #[derive(Debug, Config)]
 pub struct StateConfig {
+    /// default 288
     pub dim: i32,
+    /// default 768
     pub hidden_dim: i32,
+    /// default 6
     pub n_layers: i32,
+    /// default 6
     pub n_heads: i32,
+    /// default 6
     pub n_kv_heads: i32,
+    /// default 32000
     pub vocab_size: i32,
+    /// default 256
     pub seq_len: i32,
 }
 
