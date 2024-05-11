@@ -4,6 +4,7 @@
 - https://www.signalpop.com/2024/02/17/understanding-llama2-c-training-a-visual-design-walkthrough/
 - https://github.com/RahulSChand/llama2.c-for-dummies
 - https://www.youtube.com/watch?v=Mn_9W1nCFLo&t=1931s&ab_channel=UmarJamil
+- https://zhuanlan.zhihu.com/p/649756898
 
 ## sentencepiece 
 

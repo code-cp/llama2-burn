@@ -526,6 +526,8 @@ impl Model {
             ]);
 
             for i in (0..q.dims()[0]).step_by(2) {
+                // compute the RoPE embedding
+                // sligtly different from loading from bin file
                 let freq = 1. / 10000f32.powf(2. * (i as f32) / (head_size as f32));
                 let val = position as f32 * freq;
                 let fcr = val.cos();
