@@ -1,8 +1,16 @@
-## about 
+## About 
 
-Implement llama2.c using Burn 
+This repo implements [llama2.c](https://github.com/karpathy/llama2.c) using [Burn 🔥](https://github.com/tracel-ai/burn) 
 
+## Usage 
+
+Run 
+
+```
 cargo run --release
+```
+
+generates the following output
 
 ```
 Ran at 69.06784 tok/s.
@@ -11,10 +19,3 @@ The two of you. He said, "Hi, I am so much friend."
 The two of you were so much bigger and so much bigger and so much closer. He said, I am so much bigger and so much happier.
 ```
 
-## ref 
-
-- https://github.com/karpathy/llama2.c
-- https://github.com/rahoua/pecca-rs/tree/main
-- https://github.com/hamishs/llama2.rs/tree/master
-- https://github.com/Ma-Jian1/llama2.c-rs/tree/main
-- https://github.com/tairov/llama2.py
